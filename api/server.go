@@ -1,4 +1,4 @@
-// REST API server — exposes the knowledge store and drift alerts over HTTP.
+// REST API server — exposes the knowledge store, drift alerts, and natural language queries.
 package api
 
 import (
@@ -12,12 +12,13 @@ import (
 )
 
 type Server struct {
-	store store.Store
-	port  string
+	store        store.Store
+	port         string
+	anthropicKey string
 }
 
-func NewServer(s store.Store, port string) *Server {
-	return &Server{store: s, port: port}
+func NewServer(s store.Store, port, anthropicKey string) *Server {
+	return &Server{store: s, port: port, anthropicKey: anthropicKey}
 }
 
 func (s *Server) Run(ctx context.Context) error {
@@ -26,8 +27,9 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /facts/{key}", s.handleGetFact)
 	mux.HandleFunc("GET /facts", s.handleListFacts)
 	mux.HandleFunc("GET /alerts", s.handleAlerts)
+	mux.HandleFunc("POST /query", s.handleQuery)
 
-	srv := &http.Server{Addr: ":" + s.port, Handler: mux}
+	srv := &http.Server{Addr: ":" + s.port, Handler: cors(mux)}
 	fmt.Printf("[api] listening on :%s\n", s.port)
 
 	go func() {
@@ -36,6 +38,20 @@ func (s *Server) Run(ctx context.Context) error {
 	}()
 
 	return srv.ListenAndServe()
+}
+
+// cors allows the Next.js dev server to call the API without a proxy.
+func cors(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -66,7 +82,6 @@ func (s *Server) handleListFacts(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(facts)
 }
 
-// handleAlerts reads drift alerts directly from the store (written by the coordinator).
 func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
 	facts, err := s.store.List(r.Context(), "drift.alert:")
 	if err != nil {

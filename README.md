@@ -111,10 +111,13 @@ curl localhost:8080/alerts | jq
 - Coordinator connects to the same distributed store as the API
 - **Concepts covered:** leader election, lease renewal, split-brain prevention, fencing tokens, distributed joins
 
-### Milestone 4 — Query API + Dashboard
-- Natural language queries via Anthropic API
-- Next.js dashboard: ingestion feed, knowledge graph, drift alerts
-- **Concepts covered:** LLM integration, serving distributed state
+### ✅ Milestone 4 — Query API + Dashboard
+- `POST /query` endpoint sends stored facts as context to Claude (claude-sonnet-4-6) and returns a natural language answer
+- Prompt caching on the system prompt reduces token cost on repeated queries
+- CORS middleware added so Next.js dev server can call the API directly
+- Next.js 15 dashboard with three panels: ingestion feed, drift alerts, query interface
+- All panels poll the API every 5 seconds for live updates
+- **Concepts covered:** LLM-augmented retrieval, prompt caching, serving distributed state
 
 ---
 

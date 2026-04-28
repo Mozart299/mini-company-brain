@@ -22,6 +22,9 @@ coordinator:
 coordinator-distributed:
 	STORE_NODES=localhost:7001,localhost:7002,localhost:7003 go run ./cmd/coordinator
 
+web:
+	cd web && npm install && npm run dev
+
 tidy:
 	go mod tidy
 

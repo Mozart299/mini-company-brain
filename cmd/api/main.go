@@ -17,6 +17,7 @@ func main() {
 	port := env("PORT", "8080")
 	redisAddr := env("REDIS_ADDR", "localhost:6379")
 	storeNodes := env("STORE_NODES", "")
+	anthropicKey := env("ANTHROPIC_API_KEY", "")
 
 	var s store.Store
 	if storeNodes != "" {
@@ -45,7 +46,7 @@ func main() {
 		}
 	}()
 
-	srv := api.NewServer(s, port)
+	srv := api.NewServer(s, port, anthropicKey)
 	fmt.Println("[api] starting server on :" + port)
 	if err := srv.Run(ctx); err != nil {
 		fmt.Printf("[api] server error: %v\n", err)
