@@ -1,0 +1,21 @@
+# Go
+bin/
+*.exe
+*.test
+*.out
+vendor/
+
+# BadgerDB data
+data/
+
+# Next.js
+web/.next/
+web/node_modules/
+web/out/
+
+# Env
+.env
+.env.local
+
+# OS
+.DS_Store
