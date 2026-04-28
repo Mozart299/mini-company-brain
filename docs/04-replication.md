@@ -60,7 +60,7 @@ With N=3, quorum = 2. This guarantees reads always see the latest write (even if
 
 When `ring.RemoveNode(addr)` is called (e.g., health check detects a node is down), the ring rebalances. The formerly unreachable node's keys now route to the next clockwise node, which may already have a replica.
 
-**Anti-entropy**: a background process compares key sets between replicas and syncs missing entries. This is how Cassandra's "hinted handoff" works. We'll add this in Milestone 2.
+**Anti-entropy**: a background process that compares key sets between replicas and syncs missing entries — this is how Cassandra's "hinted handoff" works. Not yet implemented; currently a node that misses a write stays out of sync until the key is written again.
 
 ## OS Analogy
 

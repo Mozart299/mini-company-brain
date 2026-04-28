@@ -52,7 +52,7 @@ Node-A tries to write with token=1 → rejected
 Node-B writes with token=2 → accepted
 ```
 
-We'll add fence tokens in Milestone 3.
+Fence tokens are implemented in `coordinator/election.go` — the token increments each time this node wins and is included in the lease value stored in Redis.
 
 ## Alternatives
 

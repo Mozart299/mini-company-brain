@@ -32,7 +32,7 @@ Simple heuristic in `coordinator/drift.go`:
      if no commits reference ticket.ID → raise DriftAlert
 ```
 
-This is intentionally naive. It will have false positives (commits like "fix typo" that don't need a ticket). We'll refine with LLM-assisted classification in Milestone 4.
+This is intentionally naive and will have false positives (commits like "fix typo" that don't need a ticket). The LLM query endpoint (`POST /query`) can be used to ask smarter questions over the same data.
 
 ## State Comparison as a Distributed Problem
 
@@ -55,17 +55,16 @@ DriftAlert created → stored in KV with key "drift.alert:{id}"
                    → stored with "resolved_at" timestamp
 ```
 
-## LLM Enhancement (Milestone 4)
+## LLM Queries (Milestone 4)
 
-In Milestone 4 we'll add an Anthropic API call to improve drift classification:
+The `POST /query` endpoint lets you ask natural language questions over all stored facts:
 
 ```
-Prompt: "Given these commits: [...] and these tickets: [...]
-         Identify work that appears unplanned or misaligned.
-         Return JSON with severity and explanation."
+POST /query
+{"question": "Is there any engineering work that doesn't match our planned tickets?"}
 ```
 
-The heuristic catches obvious gaps. The LLM catches subtle ones — like a refactor of the auth system that doesn't mention any ticket but clearly corresponds to a security initiative mentioned in Slack.
+All facts (commits, tickets, Slack messages, alerts) are sent as context to Claude. The heuristic detector catches obvious gaps; the LLM catches subtle ones — like a refactor that doesn't mention a ticket but clearly corresponds to a security initiative discussed in Slack.
 
 ## Why This Matters for the YC Idea
 

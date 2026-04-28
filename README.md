@@ -11,8 +11,8 @@ Built as both a learning project (distributed systems + OS concepts) and a proto
 ```
 [Data Sources]       [Ingestion Layer]       [Knowledge Store]      [Query / Alert Layer]
   GitHub API    -->  Ingestion Workers   -->  Distributed KV Store  -->  REST API
-  Slack Feed    -->  (Go goroutines)     -->  (versioned, replicated)-->  Drift Detector
-  Linear Tickets-->  Redis Streams       -->  Consistent Hash Ring   -->  Dashboard (soon)
+  Slack Feed    -->  (Go goroutines)     -->  (BadgerDB, replicated) -->  Drift Detector
+  Linear Tickets-->  Redis Streams       -->  Consistent Hash Ring   -->  Next.js Dashboard
 ```
 
 ### Components
@@ -20,11 +20,11 @@ Built as both a learning project (distributed systems + OS concepts) and a proto
 | Component | Location | Description |
 |---|---|---|
 | Ingestion Workers | `ingestion/` | One goroutine per source (GitHub, Slack, Linear) |
-| Message Queue | `queue/` | Redis Streams wrapper |
-| Knowledge Store | `store/` | In-memory KV → BadgerDB (Milestone 2) |
+| Message Queue | `queue/` | Redis Streams wrapper with consumer groups |
+| Knowledge Store | `store/` | BadgerDB-backed distributed KV with consistent hashing |
 | Coordinator | `coordinator/` | Leader election + drift detection |
-| REST API | `api/` | Serves facts and drift alerts |
-| Dashboard | `web/` | Next.js frontend (Milestone 4) |
+| REST API | `api/` | Serves facts, alerts, and natural language queries |
+| Dashboard | `web/` | Next.js 15 frontend with shadcn/ui |
 
 ---
 
@@ -34,10 +34,10 @@ Built as both a learning project (distributed systems + OS concepts) and a proto
 |---|---|
 | Ingestion / backend | Go |
 | Message queue | Redis Streams |
-| Knowledge store | In-memory → BadgerDB → etcd |
+| Knowledge store | BadgerDB (embedded, per node) |
 | API | Go `net/http` |
-| Dashboard | Next.js |
-| Local infra | Docker Compose |
+| Dashboard | Next.js 15 + shadcn/ui |
+| Infrastructure | Docker Compose |
 
 ---
 
@@ -45,22 +45,33 @@ Built as both a learning project (distributed systems + OS concepts) and a proto
 
 ### Prerequisites
 
-- Go 1.22+
 - Docker
 
-### Run locally
+### Run
 
 ```bash
 cp .env.example .env   # fill in your API keys
 make up                # builds and starts everything
 ```
 
-That's it. Docker Compose brings up Redis, 3 store nodes, ingestion workers, coordinator, API, and the dashboard in one command.
+Docker Compose brings up all 8 services in one command: Redis, 3 store nodes, ingestion workers, coordinator, API, and the dashboard.
 
-| Service     | URL                    |
-|-------------|------------------------|
-| Dashboard   | http://localhost:3000  |
-| API         | http://localhost:8080  |
+| Service   | URL                   |
+|-----------|-----------------------|
+| Dashboard | http://localhost:3000 |
+| API       | http://localhost:8080 |
+
+### Environment variables
+
+Copy `.env.example` to `.env` and fill in:
+
+| Variable | Description |
+|---|---|
+| `ANTHROPIC_API_KEY` | Required for the natural language query feature |
+| `GITHUB_TOKEN` | GitHub personal access token for real commit ingestion |
+| `GITHUB_REPO` | Repo to watch, e.g. `myorg/myrepo` |
+| `LINEAR_API_KEY` | Linear API key for ticket ingestion |
+| `LINEAR_TEAM_ID` | Linear team ID to filter tickets |
 
 ### Query the API directly
 
@@ -77,21 +88,10 @@ curl -X POST localhost:8080/query \
 ### Stream logs
 
 ```bash
-make logs s=api          # tail api logs
+make logs s=api          # tail API logs
 make logs s=coordinator  # tail coordinator logs
 make logs s=ingestion    # tail ingestion logs
 ```
-
-### Environment variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `REDIS_ADDR` | `localhost:6379` | Redis address |
-| `GITHUB_TOKEN` | — | GitHub personal access token |
-| `GITHUB_REPO` | `owner/repo` | Repo to ingest (e.g. `myorg/myrepo`) |
-| `LINEAR_API_KEY` | — | Linear API key |
-| `LINEAR_TEAM_ID` | — | Linear team ID |
-| `PORT` | `8080` | API server port |
 
 ---
 
@@ -99,34 +99,31 @@ make logs s=ingestion    # tail ingestion logs
 
 ### ✅ Milestone 1 — Single-node ingestion pipeline
 - Three ingestion workers running as concurrent goroutines (GitHub, Slack, Linear)
-- Redis Streams as the message queue with consumer groups
+- Redis Streams as the message queue with consumer groups and at-least-once delivery
 - In-memory KV store populated by a stream consumer
-- REST API serving stored facts and drift alerts
-- **Concepts covered:** goroutines, channels, context cancellation, Redis Streams, at-least-once delivery
+- REST API serving stored facts
+- **Concepts covered:** goroutines, channels, context cancellation, Redis Streams
 
 ### ✅ Milestone 2 — Distributed store
-- BadgerDB replaces in-memory store — data now persists to disk per node
+- BadgerDB replaces in-memory store — data persists to disk per node
 - Each store node runs as an independent HTTP server (`cmd/store`)
-- Consistent hashing ring partitions keys across 3 nodes; virtual nodes (150×) ensure even distribution
-- ReplicatedStore fans writes to N=2 nodes and falls back to replicas on read failure
-- List queries all nodes and merges by highest version (distributed scatter-gather)
-- `api` process auto-selects distributed mode when `STORE_NODES` env var is set
+- Consistent hashing ring partitions keys across 3 nodes with 150 virtual nodes per physical node
+- ReplicatedStore fans writes to N=2 nodes; reads fall back to replicas on failure
+- `List` does scatter-gather across all nodes, merging by highest version
 - **Concepts covered:** consistent hashing, replication, eventual consistency, fault tolerance
 
-### ✅ Milestone 3 — Coordinator + Drift Detection
-- Real Redis `SET NX` leader election with lease renewal and fence tokens
-- Only the elected leader runs drift detection — followers pause automatically
-- Two drift patterns: untracked commits (no ticket reference) and stale in-progress tickets (7+ days, no commits)
-- Alerts written as `drift.alert:{id}` facts into the store — persistent across restarts
-- API reads alerts directly from the store (no direct coordinator coupling)
-- Coordinator connects to the same distributed store as the API
-- **Concepts covered:** leader election, lease renewal, split-brain prevention, fencing tokens, distributed joins
+### ✅ Milestone 3 — Coordinator + drift detection
+- Redis `SET NX` leader election with lease renewal and fence tokens
+- Only the elected leader runs drift detection — followers pause automatically on leadership loss
+- Two drift patterns: untracked commits (no ticket reference) and stale in-progress tickets (7+ days)
+- Alerts stored as `drift.alert:{id}` facts in the KV store — persistent across restarts
+- API reads alerts directly from the store; no direct coupling to the coordinator
+- **Concepts covered:** leader election, lease renewal, split-brain prevention, fencing tokens
 
-### ✅ Milestone 4 — Query API + Dashboard
-- `POST /query` endpoint sends stored facts as context to Claude (claude-sonnet-4-6) and returns a natural language answer
+### ✅ Milestone 4 — Query API + dashboard
+- `POST /query` loads all facts as context and queries Claude (claude-sonnet-4-6)
 - Prompt caching on the system prompt reduces token cost on repeated queries
-- CORS middleware added so Next.js dev server can call the API directly
-- Next.js 15 dashboard with three panels: ingestion feed, drift alerts, query interface
+- Next.js 15 dashboard with shadcn/ui: ingestion feed, drift alerts panel, query interface
 - All panels poll the API every 5 seconds for live updates
 - **Concepts covered:** LLM-augmented retrieval, prompt caching, serving distributed state
 
@@ -152,20 +149,25 @@ Concept explanations written alongside the code — each one ties the theory dir
 ```
 company-brain/
 ├── cmd/
-│   ├── ingestion/      ← entry point: runs all ingestion workers
-│   ├── api/            ← entry point: runs store consumer + HTTP server
-│   └── coordinator/    ← entry point: runs leader election + drift detector
+│   ├── ingestion/      ← runs all ingestion workers
+│   ├── store/          ← store node HTTP server
+│   ├── api/            ← store consumer + REST API
+│   └── coordinator/    ← leader election + drift detector
 ├── ingestion/
 │   ├── github/         ← GitHub ingestion worker
 │   ├── slack/          ← Slack mock feed worker
 │   └── linear/         ← Linear ingestion worker
 ├── queue/              ← Redis Streams client
-├── store/              ← KV store interface, partitioning, replication, consumer
-├── coordinator/        ← Leader election, drift detection
-├── api/                ← HTTP server and route handlers
-├── pkg/types/          ← Shared event and fact types
-├── docs/               ← Learning notes for each major concept
-y└── docker-compose.yml  ← Multi-node local setup (Milestone 2+)
+├── store/              ← BadgerDB, consistent hashing, replication, node server/client
+├── coordinator/        ← leader election, drift detection
+├── api/                ← HTTP handlers + Anthropic query
+├── pkg/types/          ← shared event and fact types
+├── web/                ← Next.js dashboard
+├── docs/               ← learning notes for each major concept
+├── docker-compose.yml  ← full stack (all 8 services)
+└── .env.example        ← environment variable template
 ```
 
+---
 
+Builder: Peter Ssendegeya
