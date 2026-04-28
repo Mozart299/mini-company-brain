@@ -1,6 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Zap, AlertTriangle, Brain, Loader2 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
@@ -20,16 +26,6 @@ interface AlertValue {
   evidence: string[];
 }
 
-interface AlertFact extends Fact {
-  value: AlertValue;
-}
-
-const SEVERITY_COLORS: Record<string, string> = {
-  high: "text-red-400 border-red-800",
-  medium: "text-yellow-400 border-yellow-800",
-  low: "text-blue-400 border-blue-800",
-};
-
 function usePolling<T>(url: string, interval = 5000) {
   const [data, setData] = useState<T | null>(null);
   const load = useCallback(async () => {
@@ -48,78 +44,116 @@ function usePolling<T>(url: string, interval = 5000) {
   return data;
 }
 
+const SOURCE_COLORS: Record<string, string> = {
+  github: "bg-violet-500/10 text-violet-400 border-violet-500/20",
+  slack: "bg-green-500/10 text-green-400 border-green-500/20",
+  linear: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+  coordinator: "bg-orange-500/10 text-orange-400 border-orange-500/20",
+};
+
+const SEVERITY_VARIANTS: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
+  high: "destructive",
+  medium: "default",
+  low: "secondary",
+};
+
 function IngestionFeed() {
   const facts = usePolling<Fact[]>(`${API}/facts`);
-  const recent = (facts ?? []).slice(-20).reverse();
+  const recent = (facts ?? [])
+    .filter((f) => !f.key.startsWith("drift.alert:"))
+    .slice(-30)
+    .reverse();
 
   return (
-    <section className="flex flex-col gap-2">
-      <h2 className="text-sm font-bold text-gray-400 uppercase tracking-widest">
-        Ingestion Feed
-        <span className="ml-2 text-gray-600 normal-case font-normal">
-          ({recent.length} events)
-        </span>
-      </h2>
-      <div className="flex flex-col gap-1 overflow-y-auto max-h-[480px]">
-        {recent.length === 0 && (
-          <p className="text-gray-600 text-xs">No events yet — run make ingest</p>
-        )}
-        {recent.map((f) => (
-          <div key={f.key + f.version} className="border border-gray-800 rounded p-2 text-xs">
-            <div className="flex justify-between items-start gap-2">
-              <span className="text-emerald-400 break-all">{f.key}</span>
-              <span className="text-gray-500 shrink-0">{f.source}</span>
+    <Card className="flex flex-col h-full">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Zap className="h-4 w-4 text-yellow-500" />
+          Ingestion Feed
+        </CardTitle>
+        <CardDescription>{recent.length} events stored</CardDescription>
+      </CardHeader>
+      <CardContent className="flex-1 p-0">
+        <ScrollArea className="h-[520px] px-6 pb-6">
+          {recent.length === 0 ? (
+            <p className="text-sm text-muted-foreground pt-2">No events yet — run <code className="text-xs bg-muted px-1 py-0.5 rounded">make ingest</code></p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {recent.map((f) => (
+                <div key={f.key + f.version} className="rounded-md border bg-muted/30 p-3 text-xs">
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <span className="font-medium text-foreground truncate">{f.key}</span>
+                    <Badge
+                      variant="outline"
+                      className={`shrink-0 text-[10px] ${SOURCE_COLORS[f.source] ?? ""}`}
+                    >
+                      {f.source}
+                    </Badge>
+                  </div>
+                  <pre className="text-muted-foreground whitespace-pre-wrap break-all leading-relaxed">
+                    {JSON.stringify(f.value, null, 2)}
+                  </pre>
+                </div>
+              ))}
             </div>
-            <pre className="text-gray-500 mt-1 whitespace-pre-wrap break-all">
-              {JSON.stringify(f.value, null, 2)}
-            </pre>
-          </div>
-        ))}
-      </div>
-    </section>
+          )}
+        </ScrollArea>
+      </CardContent>
+    </Card>
   );
 }
 
 function AlertsPanel() {
-  const facts = usePolling<AlertFact[]>(`${API}/alerts`);
+  const facts = usePolling<Fact[]>(`${API}/alerts`);
   const alerts = facts ?? [];
 
   return (
-    <section className="flex flex-col gap-2">
-      <h2 className="text-sm font-bold text-gray-400 uppercase tracking-widest">
-        Drift Alerts
-        <span className="ml-2 text-gray-600 normal-case font-normal">
-          ({alerts.length})
-        </span>
-      </h2>
-      <div className="flex flex-col gap-2 overflow-y-auto max-h-[480px]">
-        {alerts.length === 0 && (
-          <p className="text-gray-600 text-xs">No drift detected — run make coordinator</p>
-        )}
-        {alerts.map((a) => {
-          const v = a.value as AlertValue;
-          const color = SEVERITY_COLORS[v?.severity] ?? SEVERITY_COLORS.low;
-          return (
-            <div key={a.key} className={`border rounded p-3 text-xs ${color}`}>
-              <div className="flex justify-between items-center mb-1">
-                <span className="uppercase font-bold text-[10px]">{v?.severity}</span>
-                <span className="text-gray-500">
-                  {v?.detected_at ? new Date(v.detected_at).toLocaleString() : ""}
-                </span>
-              </div>
-              <p className="text-gray-200">{v?.description}</p>
-              {v?.evidence?.length > 0 && (
-                <div className="mt-2 text-gray-500">
-                  {v.evidence.map((e, i) => (
-                    <div key={i} className="truncate">↳ {e}</div>
-                  ))}
-                </div>
-              )}
+    <Card className="flex flex-col h-full">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <AlertTriangle className="h-4 w-4 text-orange-500" />
+          Drift Alerts
+        </CardTitle>
+        <CardDescription>
+          {alerts.length === 0 ? "No drift detected" : `${alerts.length} active alert${alerts.length > 1 ? "s" : ""}`}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex-1 p-0">
+        <ScrollArea className="h-[520px] px-6 pb-6">
+          {alerts.length === 0 ? (
+            <p className="text-sm text-muted-foreground pt-2">
+              Run <code className="text-xs bg-muted px-1 py-0.5 rounded">make coordinator</code> to start detection
+            </p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {alerts.map((a) => {
+                const v = a.value as AlertValue;
+                return (
+                  <div key={a.key} className="rounded-md border bg-muted/30 p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <Badge variant={SEVERITY_VARIANTS[v?.severity] ?? "outline"} className="text-[10px]">
+                        {v?.severity?.toUpperCase()}
+                      </Badge>
+                      <span className="text-[10px] text-muted-foreground">
+                        {v?.detected_at ? new Date(v.detected_at).toLocaleString() : ""}
+                      </span>
+                    </div>
+                    <p className="text-xs text-foreground leading-relaxed">{v?.description}</p>
+                    {v?.evidence?.length > 0 && (
+                      <div className="space-y-0.5">
+                        {v.evidence.map((e, i) => (
+                          <p key={i} className="text-[10px] text-muted-foreground truncate">↳ {e}</p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
-      </div>
-    </section>
+          )}
+        </ScrollArea>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -131,7 +165,7 @@ function QueryPanel() {
   const [error, setError] = useState("");
 
   const ask = async () => {
-    if (!question.trim()) return;
+    if (!question.trim() || loading) return;
     setLoading(true);
     setError("");
     setAnswer("");
@@ -142,13 +176,12 @@ function QueryPanel() {
         body: JSON.stringify({ question }),
       });
       const data = await res.json();
-      if (!res.ok) {
-        setError(data || "Query failed");
-      } else {
+      if (!res.ok) setError(typeof data === "string" ? data : "Query failed");
+      else {
         setAnswer(data.answer);
         setFactsUsed(data.facts_used);
       }
-    } catch (e) {
+    } catch {
       setError("Could not reach API");
     } finally {
       setLoading(false);
@@ -156,57 +189,54 @@ function QueryPanel() {
   };
 
   return (
-    <section className="flex flex-col gap-3">
-      <h2 className="text-sm font-bold text-gray-400 uppercase tracking-widest">
-        Ask the Brain
-      </h2>
-      <div className="flex gap-2">
-        <input
-          className="flex-1 bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-emerald-700"
-          placeholder="What decisions were made about auth last sprint?"
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && ask()}
-        />
-        <button
-          onClick={ask}
-          disabled={loading}
-          className="bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-800 text-white text-sm px-4 py-2 rounded transition-colors"
-        >
-          {loading ? "…" : "Ask"}
-        </button>
-      </div>
-
-      {error && (
-        <p className="text-red-400 text-xs">{error}</p>
-      )}
-
-      {answer && (
-        <div className="border border-gray-800 rounded p-4 text-sm text-gray-200 whitespace-pre-wrap">
-          {answer}
-          <p className="text-gray-600 text-xs mt-3">Based on {factsUsed} facts</p>
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Brain className="h-4 w-4 text-emerald-500" />
+          Ask the Brain
+        </CardTitle>
+        <CardDescription>Natural language queries over your company knowledge</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex gap-2">
+          <Input
+            placeholder="What decisions were made about auth last sprint?"
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && ask()}
+            disabled={loading}
+          />
+          <Button onClick={ask} disabled={loading || !question.trim()}>
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Ask"}
+          </Button>
         </div>
-      )}
-    </section>
+
+        {error && <p className="text-xs text-destructive">{error}</p>}
+
+        {answer && (
+          <div className="rounded-md border bg-muted/30 p-4 space-y-2">
+            <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{answer}</p>
+            <p className="text-[10px] text-muted-foreground">Based on {factsUsed} facts</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
 export default function Dashboard() {
   return (
-    <div className="max-w-7xl mx-auto px-6 py-8">
-      <header className="mb-8">
-        <h1 className="text-2xl font-bold text-emerald-400">Company Brain</h1>
-        <p className="text-gray-500 text-sm mt-1">
-          Distributed knowledge system — ingestion · storage · drift detection · query
+    <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
+      <header>
+        <h1 className="text-2xl font-bold tracking-tight">Company Brain</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Distributed knowledge system · ingestion · storage · drift detection · query
         </p>
       </header>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         <IngestionFeed />
         <AlertsPanel />
-        <div className="flex flex-col gap-6">
-          <QueryPanel />
-        </div>
+        <QueryPanel />
       </div>
     </div>
   );
