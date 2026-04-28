@@ -51,24 +51,35 @@ Built as both a learning project (distributed systems + OS concepts) and a proto
 ### Run locally
 
 ```bash
-# Start Redis
-docker run -d -p 6379:6379 redis:7-alpine
-
-# Terminal 1 — ingestion workers (GitHub, Slack, Linear)
-make ingest
-
-# Terminal 2 — API server + store consumer
-make api
+cp .env.example .env   # fill in your API keys
+make up                # builds and starts everything
 ```
 
-### Query the store
+That's it. Docker Compose brings up Redis, 3 store nodes, ingestion workers, coordinator, API, and the dashboard in one command.
+
+| Service     | URL                    |
+|-------------|------------------------|
+| Dashboard   | http://localhost:3000  |
+| API         | http://localhost:8080  |
+
+### Query the API directly
 
 ```bash
 curl localhost:8080/health
 curl localhost:8080/facts | jq
 curl "localhost:8080/facts?prefix=github.commit" | jq
-curl "localhost:8080/facts?prefix=linear.ticket" | jq
 curl localhost:8080/alerts | jq
+curl -X POST localhost:8080/query \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What commits were made recently?"}' | jq
+```
+
+### Stream logs
+
+```bash
+make logs s=api          # tail api logs
+make logs s=coordinator  # tail coordinator logs
+make logs s=ingestion    # tail ingestion logs
 ```
 
 ### Environment variables

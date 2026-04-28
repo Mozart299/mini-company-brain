@@ -12,73 +12,101 @@ services:
       retries: 5
 
   store-1:
-    build:
-      context: .
-      dockerfile: Dockerfile.store
+    build: { context: ., dockerfile: Dockerfile.store }
     environment:
-      NODE_ID: "store-1"
+      NODE_ID: store-1
       PORT: "7001"
-      DATA_DIR: "/data/store-1"
-      PEERS: "store-2:7002,store-3:7003"
-    ports:
-      - "7001:7001"
-    depends_on:
-      redis:
-        condition: service_healthy
+      DATA_DIR: /data
+    volumes:
+      - store-1-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7001/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   store-2:
-    build:
-      context: .
-      dockerfile: Dockerfile.store
+    build: { context: ., dockerfile: Dockerfile.store }
     environment:
-      NODE_ID: "store-2"
+      NODE_ID: store-2
       PORT: "7002"
-      DATA_DIR: "/data/store-2"
-      PEERS: "store-1:7001,store-3:7003"
-    ports:
-      - "7002:7002"
+      DATA_DIR: /data
+    volumes:
+      - store-2-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7002/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  store-3:
+    build: { context: ., dockerfile: Dockerfile.store }
+    environment:
+      NODE_ID: store-3
+      PORT: "7003"
+      DATA_DIR: /data
+    volumes:
+      - store-3-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7003/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  ingestion:
+    build: { context: ., dockerfile: Dockerfile.ingestion }
+    environment:
+      REDIS_ADDR: redis:6379
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_REPO: ${GITHUB_REPO:-owner/repo}
+      LINEAR_API_KEY: ${LINEAR_API_KEY:-}
+      LINEAR_TEAM_ID: ${LINEAR_TEAM_ID:-}
     depends_on:
       redis:
         condition: service_healthy
 
-  store-3:
-    build:
-      context: .
-      dockerfile: Dockerfile.store
+  coordinator:
+    build: { context: ., dockerfile: Dockerfile.coordinator }
     environment:
-      NODE_ID: "store-3"
-      PORT: "7003"
-      DATA_DIR: "/data/store-3"
-      PEERS: "store-1:7001,store-2:7002"
-    ports:
-      - "7003:7003"
+      REDIS_ADDR: redis:6379
+      STORE_NODES: store-1:7001,store-2:7002,store-3:7003
     depends_on:
       redis:
+        condition: service_healthy
+      store-1:
+        condition: service_healthy
+      store-2:
+        condition: service_healthy
+      store-3:
         condition: service_healthy
 
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
+    build: { context: ., dockerfile: Dockerfile.api }
     environment:
       PORT: "8080"
-      REDIS_ADDR: "redis:6379"
-      STORE_NODES: "store-1:7001,store-2:7002,store-3:7003"
+      REDIS_ADDR: redis:6379
+      STORE_NODES: store-1:7001,store-2:7002,store-3:7003
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     ports:
       - "8080:8080"
     depends_on:
-      - store-1
-      - store-2
-      - store-3
+      redis:
+        condition: service_healthy
+      store-1:
+        condition: service_healthy
+      store-2:
+        condition: service_healthy
+      store-3:
+        condition: service_healthy
 
-  coordinator:
-    build:
-      context: .
-      dockerfile: Dockerfile.coordinator
-    environment:
-      REDIS_ADDR: "redis:6379"
-      STORE_NODES: "store-1:7001,store-2:7002,store-3:7003"
+  web:
+    build: { context: ., dockerfile: Dockerfile.web }
+    ports:
+      - "3000:3000"
     depends_on:
-      - store-1
-      - store-2
-      - store-3
+      - api
+
+volumes:
+  store-1-data:
+  store-2-data:
+  store-3-data:

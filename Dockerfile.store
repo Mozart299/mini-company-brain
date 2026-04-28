@@ -6,6 +6,6 @@ COPY . .
 RUN CGO_ENABLED=0 go build -o /bin/store ./cmd/store
 
 FROM alpine:3.19
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates wget
 COPY --from=builder /bin/store /bin/store
 ENTRYPOINT ["/bin/store"]
