@@ -19,6 +19,9 @@ store:
 coordinator:
 	go run ./cmd/coordinator
 
+coordinator-distributed:
+	STORE_NODES=localhost:7001,localhost:7002,localhost:7003 go run ./cmd/coordinator
+
 tidy:
 	go mod tidy
 

@@ -9,7 +9,6 @@ import (
 	"syscall"
 
 	"company-brain/api"
-	"company-brain/coordinator"
 	"company-brain/queue"
 	"company-brain/store"
 )
@@ -17,7 +16,7 @@ import (
 func main() {
 	port := env("PORT", "8080")
 	redisAddr := env("REDIS_ADDR", "localhost:6379")
-	storeNodes := env("STORE_NODES", "") // e.g. "localhost:7001,localhost:7002,localhost:7003"
+	storeNodes := env("STORE_NODES", "")
 
 	var s store.Store
 	if storeNodes != "" {
@@ -34,7 +33,6 @@ func main() {
 		fmt.Println("[api] in-memory store (single-node mode)")
 	}
 
-	d := coordinator.NewDetector(s)
 	q := queue.NewClient(redisAddr)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -47,7 +45,7 @@ func main() {
 		}
 	}()
 
-	srv := api.NewServer(s, d, port)
+	srv := api.NewServer(s, port)
 	fmt.Println("[api] starting server on :" + port)
 	if err := srv.Run(ctx); err != nil {
 		fmt.Printf("[api] server error: %v\n", err)

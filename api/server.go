@@ -7,18 +7,17 @@ import (
 	"fmt"
 	"net/http"
 
-	"company-brain/coordinator"
+	"company-brain/pkg/types"
 	"company-brain/store"
 )
 
 type Server struct {
-	store    store.Store
-	detector *coordinator.Detector
-	port     string
+	store store.Store
+	port  string
 }
 
-func NewServer(s store.Store, d *coordinator.Detector, port string) *Server {
-	return &Server{store: s, detector: d, port: port}
+func NewServer(s store.Store, port string) *Server {
+	return &Server{store: s, port: port}
 }
 
 func (s *Server) Run(ctx context.Context) error {
@@ -45,8 +44,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleGetFact(w http.ResponseWriter, r *http.Request) {
-	key := r.PathValue("key")
-	fact, err := s.store.Get(r.Context(), key)
+	fact, err := s.store.Get(r.Context(), r.PathValue("key"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -56,17 +54,28 @@ func (s *Server) handleGetFact(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListFacts(w http.ResponseWriter, r *http.Request) {
-	prefix := r.URL.Query().Get("prefix")
-	facts, err := s.store.List(r.Context(), prefix)
+	facts, err := s.store.List(r.Context(), r.URL.Query().Get("prefix"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if facts == nil {
+		facts = []types.Fact{}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(facts)
 }
 
+// handleAlerts reads drift alerts directly from the store (written by the coordinator).
 func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
+	facts, err := s.store.List(r.Context(), "drift.alert:")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if facts == nil {
+		facts = []types.Fact{}
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.detector.Alerts())
+	json.NewEncoder(w).Encode(facts)
 }

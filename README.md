@@ -102,11 +102,14 @@ curl localhost:8080/alerts | jq
 - `api` process auto-selects distributed mode when `STORE_NODES` env var is set
 - **Concepts covered:** consistent hashing, replication, eventual consistency, fault tolerance
 
-### Milestone 3 — Coordinator + Drift Detection
-- Leader election via Redis SET NX
-- Drift detector comparing ticket state vs commit activity
-- Alerts surfaced via API
-- **Concepts covered:** leader election, distributed consensus, split-brain, fencing tokens
+### ✅ Milestone 3 — Coordinator + Drift Detection
+- Real Redis `SET NX` leader election with lease renewal and fence tokens
+- Only the elected leader runs drift detection — followers pause automatically
+- Two drift patterns: untracked commits (no ticket reference) and stale in-progress tickets (7+ days, no commits)
+- Alerts written as `drift.alert:{id}` facts into the store — persistent across restarts
+- API reads alerts directly from the store (no direct coordinator coupling)
+- Coordinator connects to the same distributed store as the API
+- **Concepts covered:** leader election, lease renewal, split-brain prevention, fencing tokens, distributed joins
 
 ### Milestone 4 — Query API + Dashboard
 - Natural language queries via Anthropic API

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"company-brain/coordinator"
@@ -13,18 +14,45 @@ import (
 
 func main() {
 	redisAddr := env("REDIS_ADDR", "localhost:6379")
+	storeNodes := env("STORE_NODES", "")
 
-	s := store.NewMemoryStore()
+	var s store.Store
+	if storeNodes != "" {
+		ring := store.NewRing()
+		rs := store.NewReplicatedStore(ring)
+		for _, addr := range strings.Split(storeNodes, ",") {
+			addr = strings.TrimSpace(addr)
+			rs.RegisterNode(addr, store.NewNodeClient(addr))
+		}
+		s = rs
+		fmt.Printf("[coordinator] distributed store: %s\n", storeNodes)
+	} else {
+		s = store.NewMemoryStore()
+		fmt.Println("[coordinator] in-memory store (single-node mode)")
+	}
+
 	elector := coordinator.NewElector(redisAddr)
 	detector := coordinator.NewDetector(s)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	fmt.Println("[coordinator] starting")
+	// detectorCancel lets us stop the detector when we lose leadership.
+	var detectorCancel context.CancelFunc
+
 	elector.Run(ctx,
-		func() { go detector.Run(ctx) },
-		func() { fmt.Println("[coordinator] stepped down, pausing drift detection") },
+		func() {
+			var dCtx context.Context
+			dCtx, detectorCancel = context.WithCancel(ctx)
+			go detector.Run(dCtx)
+		},
+		func() {
+			if detectorCancel != nil {
+				detectorCancel()
+				detectorCancel = nil
+			}
+			fmt.Println("[coordinator] stepped down — drift detection paused")
+		},
 	)
 }
 
