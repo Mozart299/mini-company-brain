@@ -93,10 +93,13 @@ curl localhost:8080/alerts | jq
 - REST API serving stored facts and drift alerts
 - **Concepts covered:** goroutines, channels, context cancellation, Redis Streams, at-least-once delivery
 
-### Milestone 2 — Distributed store
-- Replace in-memory store with BadgerDB
-- Consistent hashing to partition keys across 3 simulated nodes (Docker)
-- Replication: each key written to N=2 nodes
+### ✅ Milestone 2 — Distributed store
+- BadgerDB replaces in-memory store — data now persists to disk per node
+- Each store node runs as an independent HTTP server (`cmd/store`)
+- Consistent hashing ring partitions keys across 3 nodes; virtual nodes (150×) ensure even distribution
+- ReplicatedStore fans writes to N=2 nodes and falls back to replicas on read failure
+- List queries all nodes and merges by highest version (distributed scatter-gather)
+- `api` process auto-selects distributed mode when `STORE_NODES` env var is set
 - **Concepts covered:** consistent hashing, replication, eventual consistency, fault tolerance
 
 ### Milestone 3 — Coordinator + Drift Detection
@@ -145,7 +148,7 @@ company-brain/
 ├── api/                ← HTTP server and route handlers
 ├── pkg/types/          ← Shared event and fact types
 ├── docs/               ← Learning notes for each major concept
-└── docker-compose.yml  ← Multi-node local setup (Milestone 2+)
+y└── docker-compose.yml  ← Multi-node local setup (Milestone 2+)
 ```
 
 

@@ -1,5 +1,5 @@
-// Replication: each write is forwarded to N replica nodes so data
-// survives a node going down. See docs/04-replication.md.
+// ReplicatedStore fans reads and writes across multiple store nodes using the
+// consistent hash ring. See docs/04-replication.md.
 package store
 
 import (
@@ -9,30 +9,27 @@ import (
 	"company-brain/pkg/types"
 )
 
-const replicationFactor = 2 // write to this many nodes per key
+const replicationFactor = 2 // write to this many distinct nodes per key
 
-// ReplicatedStore sits in front of the hash ring and fans writes out to N nodes.
+// ReplicatedStore implements Store by routing operations to the correct nodes.
 type ReplicatedStore struct {
 	ring    *Ring
-	clients map[string]Store // addr -> store client for that node
+	clients map[string]Store // addr -> NodeClient for that node
 }
 
 func NewReplicatedStore(ring *Ring) *ReplicatedStore {
-	return &ReplicatedStore{
-		ring:    ring,
-		clients: make(map[string]Store),
-	}
+	return &ReplicatedStore{ring: ring, clients: make(map[string]Store)}
 }
 
-// RegisterNode adds a reachable store node.
+// RegisterNode adds a store node to the ring and records its client.
 func (rs *ReplicatedStore) RegisterNode(addr string, s Store) {
 	rs.ring.AddNode(addr)
 	rs.clients[addr] = s
 }
 
-// Set writes the fact to the primary node plus (replicationFactor-1) successors.
+// Set writes the fact to replicationFactor nodes: primary + clockwise successors.
 func (rs *ReplicatedStore) Set(ctx context.Context, fact types.Fact) error {
-	targets, err := rs.replicas(fact.Key)
+	targets, err := rs.ring.Replicas(fact.Key, replicationFactor)
 	if err != nil {
 		return err
 	}
@@ -41,6 +38,7 @@ func (rs *ReplicatedStore) Set(ctx context.Context, fact types.Fact) error {
 		if s, ok := rs.clients[addr]; ok {
 			if err := s.Set(ctx, fact); err != nil {
 				errs = append(errs, fmt.Errorf("node %s: %w", addr, err))
+				fmt.Printf("[replicated] write to %s failed: %v\n", addr, err)
 			}
 		}
 	}
@@ -50,9 +48,9 @@ func (rs *ReplicatedStore) Set(ctx context.Context, fact types.Fact) error {
 	return nil
 }
 
-// Get reads from the primary; falls back to replicas on failure.
+// Get reads from the primary; falls back to each replica on failure.
 func (rs *ReplicatedStore) Get(ctx context.Context, key string) (types.Fact, error) {
-	targets, err := rs.replicas(key)
+	targets, err := rs.ring.Replicas(key, replicationFactor)
 	if err != nil {
 		return types.Fact{}, err
 	}
@@ -66,13 +64,38 @@ func (rs *ReplicatedStore) Get(ctx context.Context, key string) (types.Fact, err
 	return types.Fact{}, fmt.Errorf("key not found on any replica: %s", key)
 }
 
-// replicas returns up to replicationFactor node addresses for a key,
-// starting from the primary on the ring.
-func (rs *ReplicatedStore) replicas(key string) ([]string, error) {
-	primary, err := rs.ring.Lookup(key)
+// Delete removes the key from all replicas.
+func (rs *ReplicatedStore) Delete(ctx context.Context, key string) error {
+	targets, err := rs.ring.Replicas(key, replicationFactor)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	// TODO: walk the ring clockwise to collect replicationFactor-1 more nodes
-	return []string{primary}, nil
+	for _, addr := range targets {
+		if s, ok := rs.clients[addr]; ok {
+			s.Delete(ctx, key)
+		}
+	}
+	return nil
+}
+
+// List queries every node and merges results, keeping the highest-version fact
+// per key. This is necessary because different keys hash to different primaries.
+func (rs *ReplicatedStore) List(ctx context.Context, prefix string) ([]types.Fact, error) {
+	seen := make(map[string]types.Fact)
+	for _, s := range rs.clients {
+		facts, err := s.List(ctx, prefix)
+		if err != nil {
+			continue // tolerate a node being down
+		}
+		for _, f := range facts {
+			if existing, ok := seen[f.Key]; !ok || f.Version > existing.Version {
+				seen[f.Key] = f
+			}
+		}
+	}
+	out := make([]types.Fact, 0, len(seen))
+	for _, f := range seen {
+		out = append(out, f)
+	}
+	return out, nil
 }

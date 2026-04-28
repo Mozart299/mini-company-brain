@@ -66,6 +66,31 @@ func (r *Ring) Lookup(key string) (string, error) {
 	return r.nodes[r.sorted[idx]], nil
 }
 
+// Replicas returns up to n distinct physical node addresses for the given key,
+// starting at the primary and walking clockwise around the ring.
+func (r *Ring) Replicas(key string, n int) ([]string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if len(r.sorted) == 0 {
+		return nil, fmt.Errorf("ring is empty")
+	}
+	h := hash(key)
+	idx := sort.Search(len(r.sorted), func(i int) bool { return r.sorted[i] >= h })
+	if idx == len(r.sorted) {
+		idx = 0
+	}
+	seen := make(map[string]bool)
+	var out []string
+	for i := 0; i < len(r.sorted) && len(out) < n; i++ {
+		addr := r.nodes[r.sorted[(idx+i)%len(r.sorted)]]
+		if !seen[addr] {
+			seen[addr] = true
+			out = append(out, addr)
+		}
+	}
+	return out, nil
+}
+
 func hash(s string) uint32 {
 	b := sha256.Sum256([]byte(s))
 	return binary.BigEndian.Uint32(b[:4])
