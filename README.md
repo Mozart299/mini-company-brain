@@ -8,6 +8,8 @@ Built as both a learning project (distributed systems + OS concepts) and a proto
 
 ## Architecture
 
+The full write-up, with diagrams, data flow and known limitations, is in [`docs/architecture.md`](docs/architecture.md).
+
 ```
 [Data Sources]       [Ingestion Layer]       [Knowledge Store]      [Query / Alert Layer]
   GitHub API    -->  Ingestion Workers   -->  Distributed KV Store  -->  REST API
